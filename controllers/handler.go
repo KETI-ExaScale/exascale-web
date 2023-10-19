@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/klog"
 )
 
 func PolicyHandler() gin.HandlerFunc {
@@ -15,10 +16,10 @@ func PolicyHandler() gin.HandlerFunc {
 }
 
 func InfoHandler() gin.HandlerFunc {
-	infos := helpers.GetClusterInfo()
+	infos := helpers.GetClusterList()
 	return func(c *gin.Context) {
 		c.HTML(http.StatusOK, "information.html", gin.H{
-			"clusterNode_GPU": template.HTML(infos),
+			"clusterRadio": template.HTML(infos),
 		})
 	}
 }
@@ -35,30 +36,38 @@ type NodeInfoHTML struct {
 
 func NodeInfoHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		paramMap := c.Request.URL.Query()
-
-		clusterID := paramMap["clusterNum"][0]
-		nodeCount := paramMap["nodeCnt"][0]
-		gpuCount := paramMap["gpuCnt"][0]
+		node := c.DefaultQuery("node", "")
 		nHtml := &NodeInfoHTML{}
-		nHtml.InnerHTML = helpers.GetNodeInfo(clusterID, nodeCount, gpuCount)
+		nHtml.InnerHTML = helpers.GetNodeMetricInfo(node, helpers.GetNodeInfo(node))
 
 		c.JSON(http.StatusOK, nHtml)
 	}
 }
 
 type PodInfoHTML struct {
-	InnerHTML string `json:"innerHTML"`
+	PodHTML string `json:"podHTML"`
 }
 
 func PodInfoHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		paramMap := c.Request.URL.Query()
-
-		clusterID := paramMap["clusterNum"][0]
+		node := c.DefaultQuery("node", "")
+		klog.Infoln(node)
 		pHtml := &PodInfoHTML{}
-		pHtml.InnerHTML = helpers.GetPodInfo(clusterID)
+		pHtml.PodHTML = helpers.GetPodInfo(node)
 
 		c.JSON(http.StatusOK, pHtml)
+	}
+}
+
+type ClusterInfoHTML struct {
+	InnerHTML string `json:"innerHTML"`
+}
+
+func ConfirmChanges() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cluster := c.DefaultQuery("cluster", "")
+		nHtml := &ClusterInfoHTML{}
+		nHtml.InnerHTML = helpers.GetClusterInfo(cluster)
+		c.JSON(http.StatusOK, nHtml)
 	}
 }

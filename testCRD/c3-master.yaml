@@ -1,0 +1,22 @@
+apiVersion: cloud.exascale.keti/v1
+kind: Cluster
+metadata:
+  labels:
+    app.kubernetes.io/name: cluster
+    app.kubernetes.io/instance: cluster-sample
+    app.kubernetes.io/part-of: exascale-resource-controller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: exascale-resource-controller
+  name: c3-master
+spec:
+  host: "10.0.5.20"
+  masterNode: c3-master
+  nodes: 
+  - c3-master
+  - gpu-node4
+  - gpu-node3
+  - gpu-node2
+  - gpu-node1
+  totalGPU: "10"
+
+  # TODO(user): Add fields here

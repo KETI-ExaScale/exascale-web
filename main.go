@@ -15,12 +15,7 @@ func main() {
 
 	globals.InitClient()
 
-	router.Static("/assets", "./assets")
-	router.Static("/static/css", "./static/css")
-	router.Static("/static/img", "./static/img")
-	router.Static("/static/scss", "./static/scss")
-	router.Static("/static/vendor", "./static/vendor")
-	router.Static("/static/js", "./static/js")
+	router.Static("/static", "./static")
 
 	router.LoadHTMLGlob("templates/*.html")
 	public := router.Group("/")
