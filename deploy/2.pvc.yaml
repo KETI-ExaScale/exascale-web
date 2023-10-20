@@ -1,0 +1,15 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: exascale-web-pvc
+  namespace: keti-system
+spec:
+  volumeName: exascale-web-pv
+  accessModes:
+  - ReadWriteMany
+  resources:
+   requests:
+    storage: 50Gi
+  selector:
+    matchLabels:
+      name: exascale-web

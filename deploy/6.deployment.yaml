@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exascale-web
+  namespace: keti-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: exascale-web
+  template:
+    metadata:
+      labels:
+        name: exascale-web
+    spec:
+      serviceAccountName: exascale-web
+      containers:
+        - name: exascale-web
+          # Replace this with the built image name
+          image: ketidevit2/exascale.exascale-web:latest
+          command:
+          - /exascale-web/exascale.exascale-web
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: exascale-web-volume
+              mountPath: /exascale-web
+      imagePullSecrets:
+      - name: keti-user
+      volumes:
+        - name: exascale-web-volume
+          persistentVolumeClaim:
+            claimName: exascale-web-pvc

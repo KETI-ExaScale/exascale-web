@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: exascale-web
+  namespace: keti-system
+  labels:
+    name: exascale-web
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30808
+    protocol: TCP
+  selector:
+    name: exascale-web
