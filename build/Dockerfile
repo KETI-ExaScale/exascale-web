@@ -1,8 +1,8 @@
 FROM registry.access.redhat.com/ubi7/ubi-minimal:latest
 
-ENV OPERATOR=/exascale-web/exascale.exascale-web
+ENV OPERATOR=/usr/local/bin/exascale.exascale-web
 
 # install operator binary
-COPY _output/bin/metric-collector ${OPERATOR}
+COPY _output/bin/exascale.exascale-web ${OPERATOR}
 
-ENTRYPOINT ["/exascale-web/exascale.exascale-web"]
+ENTRYPOINT ["/usr/local/bin/exascale.exascale-web"]
