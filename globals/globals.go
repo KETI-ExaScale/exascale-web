@@ -12,7 +12,7 @@ var TestClient *kubernetes.Clientset
 
 func InitClient() {
 	Client = make(map[string]*kubernetes.Clientset)
-	kubeconfigPath := "/root/.kube/cluster1-config"
+	kubeconfigPath := "/root/.kube/config"
 
 	// kubeconfig 파일 로드
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
