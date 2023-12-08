@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"gin_session_auth/helpers"
 	"html/template"
 	"net/http"
@@ -16,7 +17,8 @@ func PolicyHandler() gin.HandlerFunc {
 }
 
 func InfoHandler() gin.HandlerFunc {
-	infos := helpers.GetClusterList()
+	manager := helpers.NewNodeManager()
+	infos := manager.GetClusterList()
 	return func(c *gin.Context) {
 		c.HTML(http.StatusOK, "information.html", gin.H{
 			"clusterRadio": template.HTML(infos),
@@ -38,7 +40,8 @@ func NodeInfoHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		node := c.DefaultQuery("node", "")
 		nHtml := &NodeInfoHTML{}
-		nHtml.InnerHTML = helpers.GetNodeMetricInfo(node, helpers.GetNodeInfo(node))
+		manager := helpers.NewNodeManager()
+		nHtml.InnerHTML = manager.GetNodeMetricInfo(node, manager.GetNodeGPUInfo(node))
 
 		c.JSON(http.StatusOK, nHtml)
 	}
@@ -53,7 +56,8 @@ func PodInfoHandler() gin.HandlerFunc {
 		node := c.DefaultQuery("node", "")
 		klog.Infoln(node)
 		pHtml := &PodInfoHTML{}
-		pHtml.PodHTML = helpers.GetPodInfo(node)
+		manager := helpers.NewNodeManager()
+		pHtml.PodHTML = manager.GetPodInfo(node)
 
 		c.JSON(http.StatusOK, pHtml)
 	}
@@ -64,10 +68,13 @@ type ClusterInfoHTML struct {
 }
 
 func ConfirmChanges() gin.HandlerFunc {
+	fmt.Println("ConfirmChanges")
 	return func(c *gin.Context) {
-		cluster := c.DefaultQuery("cluster", "")
 		nHtml := &ClusterInfoHTML{}
-		nHtml.InnerHTML = helpers.GetClusterInfo(cluster)
+		manager := helpers.NewNodeManager()
+		nHtml.InnerHTML = manager.GetClusterInfo("Cluster1")
+		fmt.Println("nHtml - ConfirmChange")
+		fmt.Println(nHtml)
 		c.JSON(http.StatusOK, nHtml)
 	}
 }
