@@ -7,11 +7,11 @@ metadata:
     name: exascale-web
 spec:
   capacity:
-    storage: 100Gi
+    storage: 10Gi
   volumeMode: Filesystem
   persistentVolumeReclaimPolicy: Delete
   accessModes:
     - ReadWriteMany
   nfs:
-    server: 192.168.21.191
+    server: 10.0.5.20
     path: /exascale-web

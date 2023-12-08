@@ -9,7 +9,7 @@ spec:
   - ReadWriteMany
   resources:
    requests:
-    storage: 50Gi
+    storage: 5Gi
   selector:
     matchLabels:
       name: exascale-web
