@@ -1,95 +1,98 @@
 package helpers
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"math"
-	"net/http"
 	"strconv"
-	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog"
+	"gin_session_auth/pkg/api/api"
+	pb "gin_session_auth/pkg/api/api/metric"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
-const MaterClusterHost = "http://10.0.5.20:30850/"
+const PORT = "9322"
 
-type ClusterInfo struct {
-	Nodes string
-	GPUs  string
-}
-type ClusterListResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    []struct {
-		ClusterName string   `json:"clusterName"`
-		MasterNode  string   `json:"masterNode"`
-		Nodes       []string `json:"nodes"`
-		TotalGPU    int32    `json:"totalGPU"`
-	} `json:"data"`
-}
-
-func GetClusterList() string {
-	clusterRes := &ClusterListResponse{}
-
-	response, err := http.Get(MaterClusterHost + "clusters")
-	if err != nil {
-		klog.Errorln(err)
-	}
-	defer response.Body.Close()
-
-	// 응답 본문 읽기
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		klog.Errorln(err)
-	}
-
-	err = json.Unmarshal(body, clusterRes)
-	if err != nil {
-		klog.Errorln(err)
-	}
+func (nm *NodeManager) GetClusterList() string {
 	returnStr := ``
-	for _, data := range clusterRes.Data {
-		returnStr = returnStr + fmt.Sprintf(`
-		<label class="form-check">
-                        <input type="Radio" class="form-check-input" name="form-type" value="%s">
-                        <span class="form-check-label">%s</span>
-                      </label>
-		`, data.MasterNode, data.MasterNode)
-	}
+	returnStr = returnStr + fmt.Sprintf(`
+	<label class="form-check">
+					<input type="Radio" class="form-check-input" name="form-type" value="%s">
+					<span class="form-check-label">%s</span>
+					</label>
+	`, "Cluster1", "Cluster1")
 	return returnStr
 }
 
-type ClusterInfoResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    struct {
-		ClusterName string   `json:"clusterName"`
-		MasterNode  string   `json:"masterNode"`
-		Nodes       []string `json:"nodes"`
-		TotalGPU    int32    `json:"totalGPU"`
-	} `json:"data"`
+type NodeManager struct {
+	Nodes    []*pb.MultiMetric
+	IPMapper map[string]string
 }
 
-func GetClusterInfo(clusterName string) string {
-	clusterRes := &ClusterInfoResponse{}
+func NewNodeManager() *NodeManager {
+	config, _ := rest.InClusterConfig()
+	clientset, _ := kubernetes.NewForConfig(config)
+	podPrefix := clientset.CoreV1().Pods("gpu")
+	labelMap := make(map[string]string)
+	labelMap["name"] = "gpu-metric-collector"
 
-	response, err := http.Get(MaterClusterHost + "cluster/" + clusterName)
-	if err != nil {
-		klog.Errorln(err)
+	options := metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labelMap).String(),
 	}
-	defer response.Body.Close()
+	metricPods, err := podPrefix.List(context.Background(), options)
 
-	// 응답 본문 읽기
-	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		klog.Errorln(err)
+		fmt.Println(err)
 	}
 
-	err = json.Unmarshal(body, clusterRes)
-	if err != nil {
-		klog.Errorln(err)
+	podIPMap := make(map[string]string)
+
+	for _, pod := range metricPods.Items {
+		podIPMap[pod.Spec.NodeName] = pod.Status.PodIP
+	}
+
+	NodeInformation := make([]*pb.MultiMetric, len(podIPMap))
+
+	return &NodeManager{
+		Nodes:    NodeInformation,
+		IPMapper: podIPMap,
+	}
+}
+
+// func (nm *NodeManager) GetMetric(podIP string) (*pb.MultiMetric, error) {
+// 	host := podIP + ":9322"
+// 	conn, err := grpc.Dial(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
+// 	if err != nil {
+// 		fmt.Println("Did not connect", err)
+// 	}
+// 	defer conn.Close()
+// 	metricClient := pb.NewMetricCollectorClient(conn)
+// 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+// 	defer cancel()
+
+// 	r, err := metricClient.GetMultiMetric(ctx, &pb.Request{})
+
+// 	return r, err
+// }
+
+func (nm *NodeManager) GetClusterInfo(nodeName string) string {
+	// gRPC 요청
+	i := 0
+	for _, PodIP := range nm.IPMapper {
+		res, err := api.GetMultiMetric(PodIP)
+		if err != nil {
+			fmt.Println("Error:", err)
+		}
+		nm.Nodes[i] = res
+		i += 1
+	}
+
+	total_gpu := 0
+	for _, node := range nm.Nodes {
+		total_gpu += int(node.GpuCount)
 	}
 
 	returnStr := ``
@@ -151,7 +154,7 @@ func GetClusterInfo(clusterName string) string {
 					</div>
 					<div class="col">					
 					<div class="text-secondary">
-					VirtualGPUS
+					GPUS
 					</div>
 					<div class="font-weight-medium">
 					%s
@@ -163,96 +166,77 @@ func GetClusterInfo(clusterName string) string {
 				</div>
 			</div>
 		</div>
-		`, clusterRes.Data.ClusterName, strconv.Itoa(len(clusterRes.Data.Nodes)), strconv.Itoa(int(clusterRes.Data.TotalGPU*20)))
-	returnStr = returnStr + GetNodeList(clusterRes.Data.Nodes)
+		`, "Cluster1", strconv.Itoa(len(nm.Nodes)), strconv.Itoa(total_gpu))
+
+	for _, node := range nm.Nodes {
+		returnStr = returnStr + nm.GetNodeList(node)
+	}
+
 	return returnStr
 }
 
-type NodeInfoResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    struct {
-		ClusterName    string         `json:"clusterName"`
-		VirtualGPU     int32          `json:"virtualGPU"`
-		Age            string         `json:"age"`
-		GpuPods        map[string]int `json:"gpuPods"`
-		GpuPodForPrint map[int]string `json:"gpuPodForPrint"`
-	} `json:"data"`
-}
+func (nm *NodeManager) GetNodeList(node *pb.MultiMetric) string {
+	// node IP parser 필요
+	fmt.Println("getNodeInfo", node.NodeName)
+	memoryTotal := 0
+	memoryUsed := 0
 
-func GetNodeList(nodeNames []string) string {
-	fmt.Println("getNodeInfo", nodeNames)
-	returnStr := ``
-	for _, node := range nodeNames {
-		nodeRes := &NodeInfoResponse{}
-
-		response, err := http.Get(MaterClusterHost + "node/" + node)
-		if err != nil {
-			klog.Errorln(err)
-		}
-		defer response.Body.Close()
-
-		// 응답 본문 읽기
-		body, err := io.ReadAll(response.Body)
-		if err != nil {
-			klog.Errorln(err)
-		}
-
-		err = json.Unmarshal(body, nodeRes)
-		if err != nil {
-			klog.Errorln(err)
-		}
-
-		totalAllocated := int(nodeRes.Data.VirtualGPU)
-
-		totalUsed := len(nodeRes.Data.GpuPodForPrint)
-
-		returnStr = returnStr + fmt.Sprintf(`
-			<div class="col-md-6 col-xl-3" >
-				<a class="card card-link" onclick="nodeSelectBtnclick('%s')">
-					<div class="card-body">
-					<div class="row">
-						<div class="col-auto">
-						<span class="avatar rounded">EP</span>
-						</div>
-						<div class="col">
-						<div class="font-weight-medium">%s</div>
-						<div class="text-secondary">%s Allocate GPUs</div>
-						<div class="text-secondary">%s Used GPUs</div>
-						</div>
-					</div>
-					</div>
-				</a>
-			</div>
-			`, node, node, strconv.Itoa(totalAllocated), strconv.Itoa(totalUsed))
+	for _, gpuMetric := range node.GpuMetrics {
+		memoryTotal += int(gpuMetric.MemoryTotal)
+		memoryUsed += int(gpuMetric.MemoryUsed)
 	}
+
+	memoryUsed = int(float64(memoryUsed) * 0.000001)
+	memoryTotal = int(float64(memoryTotal) * 0.000001)
+	returnStr := ``
+	returnStr = returnStr + fmt.Sprintf(`
+		<div class="col-md-6 col-xl-3" >
+			<a class="card card-link" onclick="nodeSelectBtnclick('%s')">
+				<div class="card-body">
+				<div class="row">
+					<div class="col-auto">
+					<span class="avatar rounded">EP</span>
+					</div>
+					<div class="col">
+					<div class="font-weight-medium">%s</div>
+					<div class="text-secondary">Used Memory (MB): %s</div>
+					<div class="text-secondary">Total Memory (MB): %s </div>
+					</div>
+				</div>
+				</div>
+			</a>
+		</div>
+		`, node.NodeName, node.NodeName, strconv.Itoa(memoryUsed), strconv.Itoa(memoryTotal))
 	return returnStr
 }
 
-func GetNodeInfo(nodeName string) string {
+func (nm *NodeManager) GetNodeGPUInfo(nodeName string) string {
 	returnStr := ``
-	nodeRes := &NodeInfoResponse{}
-
-	response, err := http.Get(MaterClusterHost + "node/" + nodeName)
-	if err != nil {
-		klog.Errorln(err)
-	}
-	defer response.Body.Close()
-
-	// 응답 본문 읽기
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		klog.Errorln(err)
-	}
-
-	err = json.Unmarshal(body, nodeRes)
-	if err != nil {
-		klog.Errorln(err)
+	index := 0
+	totlaAllocated := 0
+	totalUsed := 0
+	i := 0
+	for _, PodIP := range nm.IPMapper {
+		res, err := api.GetMultiMetric(PodIP)
+		if err != nil {
+			fmt.Println("Error:", err)
+		}
+		nm.Nodes[i] = res
+		i += 1
 	}
 
-	totalAllocated := int(nodeRes.Data.VirtualGPU)
+	for j, node := range nm.Nodes {
+		fmt.Println("Node Name :", node.NodeName)
+		if node.NodeName == nodeName {
+			index = j
+			break
+		}
+	}
 
-	totalUsed := len(nodeRes.Data.GpuPodForPrint)
+	for _, GPUMetric := range nm.Nodes[index].GpuMetrics {
+		totlaAllocated += int(GPUMetric.MemoryUsed)
+		totalUsed += int(GPUMetric.MemoryUsed)
+	}
 
 	returnStr = returnStr + `
 	<div class="card">
@@ -263,24 +247,41 @@ func GetNodeInfo(nodeName string) string {
 						<div class="col-lg-12 mb-0">
 							<h1>Node Information</h1>
 						</div>
-						<div class="col-lg-12 mt-0 mb-0">
+						<div class="col-lg-12 mt-0 mb-0" style="display:inline;">
 							<h2 class="mb-0">GPU Info</h2>
-							<div class="div-with-background col-7"> <img src="/static/img/legend.png"/> </div>
-							
 						</div>
 			`
-	if nodeRes.Data.VirtualGPU == 0 {
+	if len(nm.Nodes[index].GpuMetrics) == 0 {
 		returnStr = returnStr + `
 		<div class="col-12">
-			<h2>This Node Has No GPU</h2>
+			<h2>This node does not have GPU</h2>
 		</div>
 	`
+		return returnStr
 	}
-	for i := 0; i < int(nodeRes.Data.VirtualGPU); i++ {
-		if podName, ok := nodeRes.Data.GpuPodForPrint[i]; ok {
-			returnStr = returnStr + generateUsedGPU(podName)
+	// for i := 0; i < int(nodeRes.Data.VirtualGPU); i++ {
+	//	if podName, ok := nodeRes.Data.GpuPodForPrint[i]; ok {
+	//		returnStr = returnStr + generateUsedGPU(podName)
+	//	} else {
+	//		returnStr = returnStr + generateAllocateGPU()
+	// 	}
+	// }
+	totalMemory := 0
+	for _, gpuMetric := range nm.Nodes[index].GpuMetrics {
+		totalMemory += int(gpuMetric.MemoryTotal)
+	}
+	usedCount := ((totalUsed * 100) / (totalMemory)) * 2
+
+	fmt.Println("usedCount :", usedCount)
+
+	totalUsedMB := float32(totalUsed) * 0.000001
+	totalMemoryMB := float32(totalMemory) * 0.000001
+
+	for i := 0; i < 20; i++ {
+		if i < usedCount {
+			returnStr += nm.generateUsedGPU()
 		} else {
-			returnStr = returnStr + generateAllocateGPU()
+			returnStr = returnStr + nm.generateAllocateGPU()
 		}
 	}
 	returnStr = returnStr + fmt.Sprintf(`
@@ -292,15 +293,14 @@ func GetNodeInfo(nodeName string) string {
 						<div class="ribbon bg-red custom-pd-1">%s</div>
 							<div class="card-body custom-pd-3">
 								<h3 class="card-title mb-1">Summary</h3>
-								<p class="text-secondary mb-0">GPU(Used/Allocate) : %s/%s</p>
-								<p class="text-secondary mb-0">Age : %s</p>
+								<p class="text-secondary mb-0">GPU(Used/total) : %s/%s (MB)</p>
 							</div>
 						</div>
-	`, nodeName, strconv.Itoa(totalUsed), strconv.Itoa(totalAllocated), nodeRes.Data.Age)
+	`, nodeName, strconv.Itoa(int(totalUsedMB)), strconv.Itoa(int(totalMemoryMB)))
 	return returnStr
 }
 
-func generateUsedGPU(podName string) string {
+func (nm *NodeManager) generateUsedGPU() string {
 	return `
 		<div class="col-2 div-with-background">
 			<img src="/static/img/gpuUsed.png">
@@ -308,7 +308,7 @@ func generateUsedGPU(podName string) string {
 	`
 }
 
-func generateAllocateGPU() string {
+func (nm *NodeManager) generateAllocateGPU() string {
 	return `
 		<div class="col-2 div-with-background">
 			<img src="/static/img/gpuallocate.png">
@@ -316,175 +316,156 @@ func generateAllocateGPU() string {
 	`
 }
 
-type NodeMetricResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    struct {
-		GPUCore   string `json:"gpuCore,omitempty"`
-		GPUMemory string `json:"gpuMemory,omitempty"`
-		GPUPower  string `json:"gpuPower,omitempty"`
-		CPUCore   string `json:"cpuCore,omitempty"`
-		Memory    string `json:"memory,omitempty"`
-		Storage   string `json:"storage,omitempty"`
-		NetworkRX string `json:"networkRX,omitempty"`
-		NetworkTX string `json:"networkTX,omitempty"`
-	} `json:"data"`
-}
-
-func GetNodeMetricInfo(nodeName string, returnStr string) string {
-	nodeRes := &NodeMetricResponse{}
-
-	response, err := http.Get(MaterClusterHost + "node/" + nodeName + "/metrics")
-	if err != nil {
-		klog.Errorln(err)
-	}
-	defer response.Body.Close()
-
-	// 응답 본문 읽기
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		klog.Errorln(err)
+func (nm *NodeManager) GetNodeMetricInfo(nodeName string, returnStr string) string {
+	index := 0
+	for i, node := range nm.Nodes {
+		if node.NodeName == nodeName {
+			//
+			index = i
+			break
+		}
 	}
 
-	err = json.Unmarshal(body, nodeRes)
-	if err != nil {
-		klog.Errorln(err)
+	totlaAllocated := 0
+
+	for _, GPUMetric := range nm.Nodes[index].GpuMetrics {
+		totlaAllocated += int(GPUMetric.MemoryUsed)
 	}
-	returnStr = returnStr + fmt.Sprintf(`
-						<div class="card mt-1">
-							<div class="card-body">
-							<h3 class="card-title mb-0">Metrics</h3>
-							<table class="table table-sm table-borderless">
-								<thead>
-								<tr>
-									<th>Utilization</th>
-									<th></th>
-								</tr>
-								</thead>
-								<tbody>
-								<tr>
-									<td>
-									<div class="progressbg">
-										<div class="progress progressbg-progress">
-										<div class="progress-bar bg-primary-lt" style="width:%s%%" role="progressbar" aria-valuenow="%s" aria-valuemin="0" aria-valuemax="100">
+
+	for _, GPUMetric := range nm.Nodes[index].GpuMetrics {
+		//
+		MemoryUsedMB := float32(GPUMetric.MemoryUsed) * 0.000001
+		CPUNodeUseMilli := float32(nm.Nodes[index].NodeMetric.MilliCpuUsage)
+		MemoryNodeUseMB := float32(nm.Nodes[index].NodeMetric.MemoryUsage) * 0.000001
+		StorageUsedMB := float32(nm.Nodes[index].NodeMetric.StorageUsage) / 1000000000
+		returnStr = returnStr + fmt.Sprintf(`
+							<div class="card mt-1">
+								<div class="card-body">
+								<h3 class="card-title mb-0">Metrics</h3>
+								<table class="table table-sm table-borderless">
+									<thead>
+									<tr>
+										<th>Usage</th>
+										<th></th>
+									</tr>
+									</thead>
+									<tbody>
+									<tr>
+										<td style="width:50%%">
+										<div class="progressbg">
+											<div class="progress progressbg-progress">
+											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
+											</div>
+											</div>
+											<div class="progressbg-text">GPUCore</div>
 										</div>
+										</td>
+										<td class="w-1 fw-bold text-end">%s</td>
+									</tr>
+									<tr>
+										<td style="width:50%%">
+										<div class="progressbg">
+											<div class="progress progressbg-progress">
+											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
+											</div>
+											</div>
+											<div class="progressbg-text">GPUMemory</div>
 										</div>
-										<div class="progressbg-text">GPUCore</div>
-									</div>
-									</td>
-									<td class="w-1 fw-bold text-end">%s%%</td>
-								</tr>
-								<tr>
-									<td>
-									<div class="progressbg">
-										<div class="progress progressbg-progress">
-										<div class="progress-bar bg-primary-lt" style="width:%s%%" role="progressbar" aria-valuenow="%s" aria-valuemin="0" aria-valuemax="100">
+										</td>
+										<td class="w-1 fw-bold text-end">%s MB</td>
+									</tr>
+									<tr>
+										<td style="width:50%%">
+										<div class="progressbg">
+											<div class="progress progressbg-progress">
+											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
+											</div>
+											</div>
+											<div class="progressbg-text">GPUPower</div>
 										</div>
+										</td>
+										<td class="w-1 fw-bold text-end">%s </td>
+									</tr>
+									<tr>
+										<td style="width:50%%">
+										<div class="progressbg">
+											<div class="progress progressbg-progress">
+											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
+											</div>
+											</div>
+											<div class="progressbg-text">CPU Milli</div>
 										</div>
-										<div class="progressbg-text">GPUMemory</div>
-									</div>
-									</td>
-									<td class="w-1 fw-bold text-end">%s%%</td>
-								</tr>
-								<tr>
-									<td>
-									<div class="progressbg">
-										<div class="progress progressbg-progress">
-										<div class="progress-bar bg-primary-lt" style="width:0%%" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+										</td>
+										<td class="w-1 fw-bold text-end">%s</td>
+									</tr>
+									<tr>
+										<td style="width:50%%">
+										<div class="progressbg">
+											<div class="progress progressbg-progress">
+											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
+											</div>
+											</div>
+											<div class="progressbg-text">Memory</div>
 										</div>
+										</td>
+										<td class="w-1 fw-bold text-end">%s MB</td>
+									</tr>
+									<tr>
+										<td style="width:50%%">
+										<div class="progressbg">
+											<div class="progress progressbg-progress">
+											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
+											</div>
+											</div>
+											<div class="progressbg-text">Storage</div>
 										</div>
-										<div class="progressbg-text">GPUPower</div>
-									</div>
-									</td>
-									<td class="w-1 fw-bold text-end">%sW</td>
-								</tr>
-								<tr>
-									<td>
-									<div class="progressbg">
-										<div class="progress progressbg-progress">
-										<div class="progress-bar bg-primary-lt" style="width:%s%%" role="progressbar" aria-valuenow="%s" aria-valuemin="0" aria-valuemax="100">
-										</div>
-										</div>
-										<div class="progressbg-text">CPUCore</div>
-									</div>
-									</td>
-									<td class="w-1 fw-bold text-end">%s%%</td>
-								</tr>
-								<tr>
-									<td>
-									<div class="progressbg">
-										<div class="progress progressbg-progress">
-										<div class="progress-bar bg-primary-lt" style="width:%s%%" role="progressbar" aria-valuenow="%s" aria-valuemin="0" aria-valuemax="100">
-										</div>
-										</div>
-										<div class="progressbg-text">Memory</div>
-									</div>
-									</td>
-									<td class="w-1 fw-bold text-end">%s%%</td>
-								</tr>
-								<tr>
-									<td>
-									<div class="progressbg">
-										<div class="progress progressbg-progress">
-										<div class="progress-bar bg-primary-lt" style="width:%s%%" role="progressbar" aria-valuenow="%s" aria-valuemin="0" aria-valuemax="100">
-										</div>
-										</div>
-										<div class="progressbg-text">Storage</div>
-									</div>
-									</td>
-									<td class="w-1 fw-bold text-end">%s%%</td>
-								</tr>
-								</tbody>
-							</table>
+										</td>
+										<td class="w-1 fw-bold text-end">%s GB</td>
+									</tr>
+									</tbody>
+								</table>
+								</div>
 							</div>
 						</div>
 					</div>
 				</div>
 			</div>
 		</div>
-	</div>
-	`, nodeRes.Data.GPUCore, nodeRes.Data.GPUCore, nodeRes.Data.GPUCore,
-		nodeRes.Data.GPUMemory, nodeRes.Data.GPUMemory, nodeRes.Data.GPUMemory,
-		nodeRes.Data.GPUPower,
-		nodeRes.Data.CPUCore, nodeRes.Data.CPUCore, nodeRes.Data.CPUCore,
-		nodeRes.Data.Memory, nodeRes.Data.Memory, nodeRes.Data.Memory,
-		nodeRes.Data.Storage, nodeRes.Data.Storage, nodeRes.Data.Storage)
+		`, strconv.Itoa(int(GPUMetric.Cudacore)),
+			strconv.Itoa(int(MemoryUsedMB)),
+			strconv.Itoa(int(GPUMetric.PowerUsed)),
+			strconv.Itoa(int(CPUNodeUseMilli)),
+			strconv.Itoa(int(MemoryNodeUseMB)),
+			strconv.Itoa(int(StorageUsedMB)))
+	}
+
 	return returnStr
 }
 
-type PodInfo struct {
-	PodName            string `json:"podName"`
-	Namespace          string `json:"namespace"`
-	ContainerName      string `json:"containerName"`
-	ContainerImageName string `json:"containerImageName"`
-	IsGPU              string `json:"isGPU"`
-	Age                string `json:"age"`
-}
-
-type PodResponse struct {
-	Code    int       `json:"code"`
-	Message string    `json:"message"`
-	Data    []PodInfo `json:"data"`
-}
-
-func GetPodInfo(nodeName string) string {
-	podRes := &PodResponse{}
-
-	response, err := http.Get(MaterClusterHost + "pod/" + nodeName)
-	if err != nil {
-		klog.Errorln(err)
-	}
-	defer response.Body.Close()
-
-	// 응답 본문 읽기
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		klog.Errorln(err)
+func (nm *NodeManager) GetPodInfo(nodeName string) string {
+	index := 0
+	i := 0
+	for _, PodIP := range nm.IPMapper {
+		res, err := api.GetMultiMetric(PodIP)
+		if err != nil {
+			fmt.Println("Error:", err)
+		}
+		nm.Nodes[i] = res
+		i += 1
 	}
 
-	err = json.Unmarshal(body, podRes)
-	if err != nil {
-		klog.Errorln(err)
+	for j, node := range nm.Nodes {
+		if node.NodeName == nodeName {
+			index = j
+			break
+		}
+	}
+
+	for i, node := range nm.Nodes {
+		if nodeName == node.NodeName {
+			index = i
+			break
+		}
 	}
 
 	returnStr := `
@@ -496,16 +477,23 @@ func GetPodInfo(nodeName string) string {
 			<table class="table card-table table-vcenter text-nowrap datatable" id="podInfoTable">
 				<thead>
 				<tr>
-					<th>Name</th>
-					<th>Namespace</th>
-					<th>Container</th>
-					<th>Container Image</th>
-					<th>IsGPU</th>
-					<th>Age</th>
+					<th>Pod Name</th>
+					<th>CPU Used (Milli Core)</th>
+					<th>Memory Used (MB)</th>
+					<th>Storage Used (GB)</th>
+					<th>GPU Memory Used (MB)</th>
 				</tr>
 				</thead>
 				<tbody id="podInfoTableBody">`
-	for _, pod := range podRes.Data {
+	for podName, pod := range nm.Nodes[index].PodMetrics {
+		GPUMemoryUsage := 0
+
+		for _, podGPU := range pod.PodGpuMetrics {
+			fmt.Println("Sub GPU Usage:", podGPU.GpuMemoryUsed)
+			GPUMemoryUsage += int(podGPU.GpuMemoryUsed)
+		}
+
+		fmt.Println("Pod GPU Usage : ", GPUMemoryUsage)
 		returnStr = returnStr + fmt.Sprintf(`
 					<tr>
 						<td>%s</td>
@@ -513,9 +501,9 @@ func GetPodInfo(nodeName string) string {
 						<td>%s</td>
 						<td>%s</td>
 						<td>%s</td>
-						<td>%s</td>
 					</tr>
-		`, pod.PodName, pod.Namespace, pod.ContainerName, pod.ContainerImageName, pod.IsGPU, pod.Age)
+		`, podName, strconv.Itoa(int(pod.CpuUsage)), strconv.Itoa(int(pod.MemoryUsage/1000000)),
+			strconv.Itoa(int(pod.StorageUsage/1000000000)), strconv.Itoa(int(GPUMemoryUsage/1000000)))
 	}
 
 	returnStr = returnStr + `
@@ -526,52 +514,52 @@ func GetPodInfo(nodeName string) string {
 	return returnStr
 }
 
-func podTr(pod corev1.Pod) (string, string, string) {
-	nameTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-11">%s</td>`, pod.Name)
-	namespaceTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, pod.Namespace)
-	age := time.Since(pod.CreationTimestamp.Time)
-	totalSec := int(math.Round(age.Seconds()))
-	day := totalSec / 86400
-	hour := (totalSec % 86400) / 3600
-	minute := ((totalSec % 86400) % 3600) / 60
-	sec := ((totalSec % 86400) % 3600) % 60
-	ageStr := ""
-	if day > 0 {
-		ageStr = fmt.Sprintf("%dd %dh", day, hour)
-	} else if hour > 0 {
-		ageStr = fmt.Sprintf("%dh %dm", hour, minute)
-	} else if minute > 0 {
-		ageStr = fmt.Sprintf("%dm %ds", minute, sec)
-	} else {
-		ageStr = fmt.Sprintf("%ds", sec)
-	}
-	ageTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, ageStr)
-	return nameTdVal, namespaceTdVal, ageTdVal
-}
+// func podTr(pod corev1.Pod) (string, string, string) {
+// 	nameTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-11">%s</td>`, pod.Name)
+// 	namespaceTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, pod.Namespace)
+// 	age := time.Since(pod.CreationTimestamp.Time)
+// 	totalSec := int(math.Round(age.Seconds()))
+// 	day := totalSec / 86400
+// 	hour := (totalSec % 86400) / 3600
+// 	minute := ((totalSec % 86400) % 3600) / 60
+// 	sec := ((totalSec % 86400) % 3600) % 60
+// 	ageStr := ""
+// 	if day > 0 {
+// 		ageStr = fmt.Sprintf("%dd %dh", day, hour)
+// 	} else if hour > 0 {
+// 		ageStr = fmt.Sprintf("%dh %dm", hour, minute)
+// 	} else if minute > 0 {
+// 		ageStr = fmt.Sprintf("%dm %ds", minute, sec)
+// 	} else {
+// 		ageStr = fmt.Sprintf("%ds", sec)
+// 	}
+// 	ageTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, ageStr)
+// 	return nameTdVal, namespaceTdVal, ageTdVal
+// }
 
-func containerTr(pod corev1.Pod) ([]string, []string) {
-	containers := pod.Spec.Containers
-	nameTdVals := make([]string, len(containers))
-	imageTdVals := make([]string, len(containers))
-	for i, container := range containers {
-		nameTdVals[i] = fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, container.Name)
-		imageTdVals[i] = fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, container.Image)
-	}
-	return nameTdVals, imageTdVals
-}
+// func containerTr(pod corev1.Pod) ([]string, []string) {
+// 	containers := pod.Spec.Containers
+// 	nameTdVals := make([]string, len(containers))
+// 	imageTdVals := make([]string, len(containers))
+// 	for i, container := range containers {
+// 		nameTdVals[i] = fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, container.Name)
+// 		imageTdVals[i] = fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, container.Image)
+// 	}
+// 	return nameTdVals, imageTdVals
+// }
 
-func gpuTr(pod corev1.Pod) string {
-	gpuTrVal := ""
-	if pod.Namespace == "kube-system" || pod.Namespace == "keti-system" {
-		gpuTrVal = `<td class="u-table-cell u-text-custom-color-12">False</td>`
+// func gpuTr(pod corev1.Pod) string {
+// 	gpuTrVal := ""
+// 	if pod.Namespace == "kube-system" || pod.Namespace == "keti-system" {
+// 		gpuTrVal = `<td class="u-table-cell u-text-custom-color-12">False</td>`
 
-	} else {
-		gpuTrVal = `<td class="u-table-cell u-text-custom-color-13">True</td>`
-	}
-	// if pod.Labels["gpu"] == "true" {
-	// 	gpuTrVal = `<td class="u-table-cell u-text-custom-color-13">True</td>`
-	// } else {
-	// 	gpuTrVal = `<td class="u-table-cell u-text-custom-color-12">False</td>`
-	// }
-	return gpuTrVal
-}
+// 	} else {
+// 		gpuTrVal = `<td class="u-table-cell u-text-custom-color-13">True</td>`
+// 	}
+// 	// if pod.Labels["gpu"] == "true" {
+// 	// 	gpuTrVal = `<td class="u-table-cell u-text-custom-color-13">True</td>`
+// 	// } else {
+// 	// 	gpuTrVal = `<td class="u-table-cell u-text-custom-color-12">False</td>`
+// 	// }
+// 	return gpuTrVal
+// }
