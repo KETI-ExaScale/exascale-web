@@ -60,6 +60,7 @@ function nodeSelectBtnclick(nodeName) {
             nodeInfoField.innerHTML = response.innerHTML; 
         },
         error: function() {
+            // 오류 처리
             alert("에러 발생");
         }
     });
@@ -73,6 +74,7 @@ function nodeSelectBtnclick(nodeName) {
             podInfoTable.innerHTML = response.podHTML;
         },
         error: function() {
+            // 오류 처리
             alert("에러 발생");
         }
     });
