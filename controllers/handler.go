@@ -58,7 +58,7 @@ func PodInfoHandler() gin.HandlerFunc {
 		pHtml := &PodInfoHTML{}
 		manager := helpers.NewNodeManager()
 		pHtml.PodHTML = manager.GetPodInfo(node)
-
+ 
 		c.JSON(http.StatusOK, pHtml)
 	}
 }
