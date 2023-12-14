@@ -175,9 +175,9 @@ func (nm *NodeManager) GetClusterInfo(nodeName string) string {
 	return returnStr
 }
 
+// show node information & pod information
 func (nm *NodeManager) GetNodeList(node *pb.MultiMetric) string {
-	// node IP parser 필요
-	fmt.Println("getNodeInfo", node.NodeName)
+	// 여기에 다 합칠 것
 	memoryTotal := 0
 	memoryUsed := 0
 
@@ -188,6 +188,8 @@ func (nm *NodeManager) GetNodeList(node *pb.MultiMetric) string {
 
 	memoryUsed = int(float64(memoryUsed) * 0.000001)
 	memoryTotal = int(float64(memoryTotal) * 0.000001)
+
+	// get graph
 	returnStr := ``
 	returnStr = returnStr + fmt.Sprintf(`
 		<div class="col-md-6 col-xl-3" >
@@ -270,7 +272,7 @@ func (nm *NodeManager) GetNodeGPUInfo(nodeName string) string {
 	for _, gpuMetric := range nm.Nodes[index].GpuMetrics {
 		totalMemory += int(gpuMetric.MemoryTotal)
 	}
-	usedCount := ((totalUsed * 100) / (totalMemory)) * 2
+	usedCount := ((totalUsed * 100) / (totalMemory)) / 2
 
 	fmt.Println("usedCount :", usedCount)
 
@@ -481,7 +483,6 @@ func (nm *NodeManager) GetPodInfo(nodeName string) string {
 					<th>CPU Used (Milli Core)</th>
 					<th>Memory Used (MB)</th>
 					<th>Storage Used (GB)</th>
-					<th>GPU Memory Used (MB)</th>
 				</tr>
 				</thead>
 				<tbody id="podInfoTableBody">`
@@ -495,15 +496,14 @@ func (nm *NodeManager) GetPodInfo(nodeName string) string {
 
 		fmt.Println("Pod GPU Usage : ", GPUMemoryUsage)
 		returnStr = returnStr + fmt.Sprintf(`
-					<tr>
-						<td>%s</td>
-						<td>%s</td>
-						<td>%s</td>
-						<td>%s</td>
-						<td>%s</td>
-					</tr>
-		`, podName, strconv.Itoa(int(pod.CpuUsage)), strconv.Itoa(int(pod.MemoryUsage/1000000)),
-			strconv.Itoa(int(pod.StorageUsage/1000000000)), strconv.Itoa(int(GPUMemoryUsage/1000000)))
+						<tr>
+							<td>%s</td>
+							<td>%s</td>
+							<td>%s</td>
+							<td>%s</td>
+						</tr>
+			`, podName, strconv.Itoa(int(pod.CpuUsage)), strconv.Itoa(int(pod.MemoryUsage/1000000)),
+			strconv.Itoa(int(pod.StorageUsage/1000000000)))
 	}
 
 	returnStr = returnStr + `
@@ -513,53 +513,3 @@ func (nm *NodeManager) GetPodInfo(nodeName string) string {
 	</div>`
 	return returnStr
 }
-
-// func podTr(pod corev1.Pod) (string, string, string) {
-// 	nameTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-11">%s</td>`, pod.Name)
-// 	namespaceTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, pod.Namespace)
-// 	age := time.Since(pod.CreationTimestamp.Time)
-// 	totalSec := int(math.Round(age.Seconds()))
-// 	day := totalSec / 86400
-// 	hour := (totalSec % 86400) / 3600
-// 	minute := ((totalSec % 86400) % 3600) / 60
-// 	sec := ((totalSec % 86400) % 3600) % 60
-// 	ageStr := ""
-// 	if day > 0 {
-// 		ageStr = fmt.Sprintf("%dd %dh", day, hour)
-// 	} else if hour > 0 {
-// 		ageStr = fmt.Sprintf("%dh %dm", hour, minute)
-// 	} else if minute > 0 {
-// 		ageStr = fmt.Sprintf("%dm %ds", minute, sec)
-// 	} else {
-// 		ageStr = fmt.Sprintf("%ds", sec)
-// 	}
-// 	ageTdVal := fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, ageStr)
-// 	return nameTdVal, namespaceTdVal, ageTdVal
-// }
-
-// func containerTr(pod corev1.Pod) ([]string, []string) {
-// 	containers := pod.Spec.Containers
-// 	nameTdVals := make([]string, len(containers))
-// 	imageTdVals := make([]string, len(containers))
-// 	for i, container := range containers {
-// 		nameTdVals[i] = fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, container.Name)
-// 		imageTdVals[i] = fmt.Sprintf(`<td class="u-table-cell u-text-custom-color-1">%s</td>`, container.Image)
-// 	}
-// 	return nameTdVals, imageTdVals
-// }
-
-// func gpuTr(pod corev1.Pod) string {
-// 	gpuTrVal := ""
-// 	if pod.Namespace == "kube-system" || pod.Namespace == "keti-system" {
-// 		gpuTrVal = `<td class="u-table-cell u-text-custom-color-12">False</td>`
-
-// 	} else {
-// 		gpuTrVal = `<td class="u-table-cell u-text-custom-color-13">True</td>`
-// 	}
-// 	// if pod.Labels["gpu"] == "true" {
-// 	// 	gpuTrVal = `<td class="u-table-cell u-text-custom-color-13">True</td>`
-// 	// } else {
-// 	// 	gpuTrVal = `<td class="u-table-cell u-text-custom-color-12">False</td>`
-// 	// }
-// 	return gpuTrVal
-// }
