@@ -13,11 +13,9 @@ var TestClient *kubernetes.Clientset
 func InitClient() {
 	Client = make(map[string]*kubernetes.Clientset)
 	kubeconfigPath := "/root/.kube/config"
-
-	// kubeconfig 파일 로드
+	
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
-		// kubeconfig 파일이 없는 경우 InClusterConfig 사용
 		config, err = rest.InClusterConfig()
 		if err != nil {
 			klog.Errorln(err)
