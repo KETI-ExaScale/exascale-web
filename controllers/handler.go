@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"k8s.io/klog"
 )
 
 func PolicyHandler() gin.HandlerFunc {
@@ -38,10 +37,10 @@ type NodeInfoHTML struct {
 
 func NodeInfoHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		node := c.DefaultQuery("node", "")
+		// node := c.DefaultQuery("node", "")
 		nHtml := &NodeInfoHTML{}
-		manager := helpers.NewNodeManager()
-		nHtml.InnerHTML = manager.GetNodeMetricInfo(node, manager.GetNodeGPUInfo(node))
+		// manager := helpers.NewNodeManager()
+		// nHtml.InnerHTML = manager.GetNodeMetricInfo(node, manager.GetNodeGPUInfo(node))
 
 		c.JSON(http.StatusOK, nHtml)
 	}
@@ -53,12 +52,12 @@ type PodInfoHTML struct {
 
 func PodInfoHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		node := c.DefaultQuery("node", "")
-		klog.Infoln(node)
+		// node := c.DefaultQuery("node", "")
+		// klog.Infoln(node)
 		pHtml := &PodInfoHTML{}
-		manager := helpers.NewNodeManager()
-		pHtml.PodHTML = manager.GetPodInfo(node)
- 
+		// manager := helpers.NewNodeManager()
+		// pHtml.PodHTML = manager.GetPodInfo(node)
+
 		c.JSON(http.StatusOK, pHtml)
 	}
 }
@@ -73,8 +72,6 @@ func ConfirmChanges() gin.HandlerFunc {
 		nHtml := &ClusterInfoHTML{}
 		manager := helpers.NewNodeManager()
 		nHtml.InnerHTML = manager.GetClusterInfo("Cluster1")
-		fmt.Println("nHtml - ConfirmChange")
-		fmt.Println(nHtml)
 		c.JSON(http.StatusOK, nHtml)
 	}
 }

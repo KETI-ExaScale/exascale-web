@@ -35,7 +35,7 @@ type NodeManager struct {
 func NewNodeManager() *NodeManager {
 	config, _ := rest.InClusterConfig()
 	clientset, _ := kubernetes.NewForConfig(config)
-	podPrefix := clientset.CoreV1().Pods("gpu")
+	podPrefix := clientset.CoreV1().Pods("")
 	labelMap := make(map[string]string)
 	labelMap["name"] = "gpu-metric-collector"
 
@@ -61,22 +61,6 @@ func NewNodeManager() *NodeManager {
 		IPMapper: podIPMap,
 	}
 }
-
-// func (nm *NodeManager) GetMetric(podIP string) (*pb.MultiMetric, error) {
-// 	host := podIP + ":9322"
-// 	conn, err := grpc.Dial(host, grpc.WithTransportCredentials(insecure.NewCredentials()))
-// 	if err != nil {
-// 		fmt.Println("Did not connect", err)
-// 	}
-// 	defer conn.Close()
-// 	metricClient := pb.NewMetricCollectorClient(conn)
-// 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-// 	defer cancel()
-
-// 	r, err := metricClient.GetMultiMetric(ctx, &pb.Request{})
-
-// 	return r, err
-// }
 
 func (nm *NodeManager) GetClusterInfo(nodeName string) string {
 	// gRPC 요청
@@ -168,16 +152,98 @@ func (nm *NodeManager) GetClusterInfo(nodeName string) string {
 		</div>
 		`, "Cluster1", strconv.Itoa(len(nm.Nodes)), strconv.Itoa(total_gpu))
 
+	usedMemoryTotal := 0
+	capacityMemoryTotal := 0
+
 	for _, node := range nm.Nodes {
 		returnStr = returnStr + nm.GetNodeList(node)
+
+		for _, gpumetric := range node.GpuMetrics {
+			usedMemoryTotal += int(gpumetric.MemoryUsed)
+			capacityMemoryTotal += int(gpumetric.MemoryTotal)
+		}
+
 	}
+
+	memoryUsagePercent := (usedMemoryTotal * 100 / capacityMemoryTotal)
+	fmt.Println("Used Percent:", memoryUsagePercent)
+
+	returnStr = returnStr + fmt.Sprintf(`
+	<div class="card card-sm">
+		<div class="col-md-6 col-xl-3">
+			<div class="card-body">
+				<div class="row">
+					<div class="col-auto">
+						<span class="avartar rounded">T</span>
+					</div>
+					<div class="col">
+						<div class="font-weight-medium">Total GPU Memory</div>
+						<div class="text-secondary">Used Memory (percent): %s</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	`, strconv.Itoa(memoryUsagePercent))
+
+	returnStr = returnStr + `
+	<div class="card card-sm" style="padding:1rem;">
+		<h1 class="card-title mb-1">Node GPU Information</h1>
+		<div class="row">
+	`
+
+	for _, node := range nm.Nodes {
+		returnStr += nm.GetNodeGPU(node)
+	}
+
+	returnStr = returnStr + `
+			</div>
+		</div>
+	</div>
+	`
+
+	return returnStr
+}
+
+func (nm *NodeManager) GetNodeGPU(node *pb.MultiMetric) string {
+	totalCapacity := 0
+	totalUsed := 0
+	returnStr := ``
+
+	returnStr = returnStr + fmt.Sprintf(`
+		<div class="col-lg-3 mt-1 custom-pd-3">
+			<h3>%s</h3>
+			<div class="row row-deck row-cards">
+	`, node.NodeName)
+
+	for _, GPUMetric := range node.GpuMetrics {
+		totalCapacity += int(GPUMetric.MemoryTotal)
+		totalUsed += int(GPUMetric.MemoryUsed)
+	}
+
+	if totalCapacity == 0 {
+		return ``
+	}
+
+	cal_value := (totalUsed * 100) / totalCapacity
+
+	fmt.Println("cal value:", cal_value)
+
+	for i := 0; i < 10; i++ {
+		if i < (cal_value / 10) {
+			returnStr += nm.generateUsedGPU()
+		} else {
+			returnStr += nm.generateAllocateGPU()
+		}
+	}
+
+	returnStr += `</div></div>`
 
 	return returnStr
 }
 
 // show node information & pod information
 func (nm *NodeManager) GetNodeList(node *pb.MultiMetric) string {
-	// 여기에 다 합칠 것
 	memoryTotal := 0
 	memoryUsed := 0
 
@@ -193,323 +259,38 @@ func (nm *NodeManager) GetNodeList(node *pb.MultiMetric) string {
 	returnStr := ``
 	returnStr = returnStr + fmt.Sprintf(`
 		<div class="col-md-6 col-xl-3" >
-			<a class="card card-link" onclick="nodeSelectBtnclick('%s')">
+			<div class="card card-link">
 				<div class="card-body">
 				<div class="row">
 					<div class="col-auto">
-					<span class="avatar rounded">EP</span>
+					<span class="avatar rounded">N</span>
 					</div>
 					<div class="col">
-					<div class="font-weight-medium">%s</div>
+					<div class="font-weight-medium">Node : %s</div>
 					<div class="text-secondary">Used Memory (MB): %s</div>
 					<div class="text-secondary">Total Memory (MB): %s </div>
 					</div>
 				</div>
 				</div>
-			</a>
+			</div>
 		</div>
-		`, node.NodeName, node.NodeName, strconv.Itoa(memoryUsed), strconv.Itoa(memoryTotal))
-	return returnStr
-}
+		`, node.NodeName, strconv.Itoa(memoryUsed), strconv.Itoa(memoryTotal))
 
-func (nm *NodeManager) GetNodeGPUInfo(nodeName string) string {
-	returnStr := ``
-	index := 0
-	totlaAllocated := 0
-	totalUsed := 0
-	i := 0
-	for _, PodIP := range nm.IPMapper {
-		res, err := api.GetMultiMetric(PodIP)
-		if err != nil {
-			fmt.Println("Error:", err)
-		}
-		nm.Nodes[i] = res
-		i += 1
-	}
-
-	for j, node := range nm.Nodes {
-		fmt.Println("Node Name :", node.NodeName)
-		if node.NodeName == nodeName {
-			index = j
-			break
-		}
-	}
-
-	for _, GPUMetric := range nm.Nodes[index].GpuMetrics {
-		totlaAllocated += int(GPUMetric.MemoryUsed)
-		totalUsed += int(GPUMetric.MemoryUsed)
-	}
-
-	returnStr = returnStr + `
-	<div class="card">
-		<div class="card-body">
-			<div class="row row-deck row-cards">
-				<div class="col-lg-6 mt-1">
-					<div class="row row-deck row-cards">
-						<div class="col-lg-12 mb-0">
-							<h1>Node Information</h1>
-						</div>
-						<div class="col-lg-12 mt-0 mb-0" style="display:inline;">
-							<h2 class="mb-0">GPU Info</h2>
-						</div>
-			`
-	if len(nm.Nodes[index].GpuMetrics) == 0 {
-		returnStr = returnStr + `
-		<div class="col-12">
-			<h2>This node does not have GPU</h2>
-		</div>
-	`
-		return returnStr
-	}
-	// for i := 0; i < int(nodeRes.Data.VirtualGPU); i++ {
-	//	if podName, ok := nodeRes.Data.GpuPodForPrint[i]; ok {
-	//		returnStr = returnStr + generateUsedGPU(podName)
-	//	} else {
-	//		returnStr = returnStr + generateAllocateGPU()
-	// 	}
-	// }
-	totalMemory := 0
-	for _, gpuMetric := range nm.Nodes[index].GpuMetrics {
-		totalMemory += int(gpuMetric.MemoryTotal)
-	}
-	usedCount := ((totalUsed * 100) / (totalMemory)) / 2
-
-	fmt.Println("usedCount :", usedCount)
-
-	totalUsedMB := float32(totalUsed) * 0.000001
-	totalMemoryMB := float32(totalMemory) * 0.000001
-
-	for i := 0; i < 20; i++ {
-		if i < usedCount {
-			returnStr += nm.generateUsedGPU()
-		} else {
-			returnStr = returnStr + nm.generateAllocateGPU()
-		}
-	}
-	returnStr = returnStr + fmt.Sprintf(`
-					</div>
-				</div>
-				<div class="col-lg-6 mt-1">
-					<div class="row row-deck row-cards">
-						<div class="card">
-						<div class="ribbon bg-red custom-pd-1">%s</div>
-							<div class="card-body custom-pd-3">
-								<h3 class="card-title mb-1">Summary</h3>
-								<p class="text-secondary mb-0">GPU(Used/total) : %s/%s (MB)</p>
-							</div>
-						</div>
-	`, nodeName, strconv.Itoa(int(totalUsedMB)), strconv.Itoa(int(totalMemoryMB)))
 	return returnStr
 }
 
 func (nm *NodeManager) generateUsedGPU() string {
 	return `
-		<div class="col-2 div-with-background">
-			<img src="/static/img/gpuUsed.png">
+		<div class="col-2" style="max-width: 3rem; max-height: 3rem; padding: 0.2rem;">
+			<img src="/static/img/useLegend.png">
 		</div>
 	`
 }
 
 func (nm *NodeManager) generateAllocateGPU() string {
 	return `
-		<div class="col-2 div-with-background">
-			<img src="/static/img/gpuallocate.png">
+		<div class="col-2" style="max-width: 3rem; max-height: 3rem; padding: 0.2rem;">
+			<img src="/static/img/allocateLegend.png">
 		</div>
 	`
-}
-
-func (nm *NodeManager) GetNodeMetricInfo(nodeName string, returnStr string) string {
-	index := 0
-	for i, node := range nm.Nodes {
-		if node.NodeName == nodeName {
-			//
-			index = i
-			break
-		}
-	}
-
-	totlaAllocated := 0
-
-	for _, GPUMetric := range nm.Nodes[index].GpuMetrics {
-		totlaAllocated += int(GPUMetric.MemoryUsed)
-	}
-
-	for _, GPUMetric := range nm.Nodes[index].GpuMetrics {
-		//
-		MemoryUsedMB := float32(GPUMetric.MemoryUsed) * 0.000001
-		CPUNodeUseMilli := float32(nm.Nodes[index].NodeMetric.MilliCpuUsage)
-		MemoryNodeUseMB := float32(nm.Nodes[index].NodeMetric.MemoryUsage) * 0.000001
-		StorageUsedMB := float32(nm.Nodes[index].NodeMetric.StorageUsage) / 1000000000
-		returnStr = returnStr + fmt.Sprintf(`
-							<div class="card mt-1">
-								<div class="card-body">
-								<h3 class="card-title mb-0">Metrics</h3>
-								<table class="table table-sm table-borderless">
-									<thead>
-									<tr>
-										<th>Usage</th>
-										<th></th>
-									</tr>
-									</thead>
-									<tbody>
-									<tr>
-										<td style="width:50%%">
-										<div class="progressbg">
-											<div class="progress progressbg-progress">
-											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
-											</div>
-											</div>
-											<div class="progressbg-text">GPUCore</div>
-										</div>
-										</td>
-										<td class="w-1 fw-bold text-end">%s</td>
-									</tr>
-									<tr>
-										<td style="width:50%%">
-										<div class="progressbg">
-											<div class="progress progressbg-progress">
-											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
-											</div>
-											</div>
-											<div class="progressbg-text">GPUMemory</div>
-										</div>
-										</td>
-										<td class="w-1 fw-bold text-end">%s MB</td>
-									</tr>
-									<tr>
-										<td style="width:50%%">
-										<div class="progressbg">
-											<div class="progress progressbg-progress">
-											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
-											</div>
-											</div>
-											<div class="progressbg-text">GPUPower</div>
-										</div>
-										</td>
-										<td class="w-1 fw-bold text-end">%s </td>
-									</tr>
-									<tr>
-										<td style="width:50%%">
-										<div class="progressbg">
-											<div class="progress progressbg-progress">
-											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
-											</div>
-											</div>
-											<div class="progressbg-text">CPU Milli</div>
-										</div>
-										</td>
-										<td class="w-1 fw-bold text-end">%s</td>
-									</tr>
-									<tr>
-										<td style="width:50%%">
-										<div class="progressbg">
-											<div class="progress progressbg-progress">
-											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
-											</div>
-											</div>
-											<div class="progressbg-text">Memory</div>
-										</div>
-										</td>
-										<td class="w-1 fw-bold text-end">%s MB</td>
-									</tr>
-									<tr>
-										<td style="width:50%%">
-										<div class="progressbg">
-											<div class="progress progressbg-progress">
-											<div class="progress-bar bg-primary-lt" style="width:100%%" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100">
-											</div>
-											</div>
-											<div class="progressbg-text">Storage</div>
-										</div>
-										</td>
-										<td class="w-1 fw-bold text-end">%s GB</td>
-									</tr>
-									</tbody>
-								</table>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
-		`, strconv.Itoa(int(GPUMetric.Cudacore)),
-			strconv.Itoa(int(MemoryUsedMB)),
-			strconv.Itoa(int(GPUMetric.PowerUsed)),
-			strconv.Itoa(int(CPUNodeUseMilli)),
-			strconv.Itoa(int(MemoryNodeUseMB)),
-			strconv.Itoa(int(StorageUsedMB)))
-	}
-
-	return returnStr
-}
-
-func (nm *NodeManager) GetPodInfo(nodeName string) string {
-	index := 0
-	i := 0
-	for _, PodIP := range nm.IPMapper {
-		res, err := api.GetMultiMetric(PodIP)
-		if err != nil {
-			fmt.Println("Error:", err)
-		}
-		nm.Nodes[i] = res
-		i += 1
-	}
-
-	for j, node := range nm.Nodes {
-		if node.NodeName == nodeName {
-			index = j
-			break
-		}
-	}
-
-	for i, node := range nm.Nodes {
-		if nodeName == node.NodeName {
-			index = i
-			break
-		}
-	}
-
-	returnStr := `
-	<div class="card">
-		<div class="card-header">
-			<h3 class="card-title">Pod Information</h3>
-		</div>
-		<div class="table-responsive">
-			<table class="table card-table table-vcenter text-nowrap datatable" id="podInfoTable">
-				<thead>
-				<tr>
-					<th>Pod Name</th>
-					<th>CPU Used (Milli Core)</th>
-					<th>Memory Used (MB)</th>
-					<th>Storage Used (GB)</th>
-				</tr>
-				</thead>
-				<tbody id="podInfoTableBody">`
-	for podName, pod := range nm.Nodes[index].PodMetrics {
-		GPUMemoryUsage := 0
-
-		for _, podGPU := range pod.PodGpuMetrics {
-			fmt.Println("Sub GPU Usage:", podGPU.GpuMemoryUsed)
-			GPUMemoryUsage += int(podGPU.GpuMemoryUsed)
-		}
-
-		fmt.Println("Pod GPU Usage : ", GPUMemoryUsage)
-		returnStr = returnStr + fmt.Sprintf(`
-						<tr>
-							<td>%s</td>
-							<td>%s</td>
-							<td>%s</td>
-							<td>%s</td>
-						</tr>
-			`, podName, strconv.Itoa(int(pod.CpuUsage)), strconv.Itoa(int(pod.MemoryUsage/1000000)),
-			strconv.Itoa(int(pod.StorageUsage/1000000000)))
-	}
-
-	returnStr = returnStr + `
-				</tbody>
-			</table>
-		</div>	
-	</div>`
-	return returnStr
 }
